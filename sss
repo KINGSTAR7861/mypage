@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>원 깨기 게임</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #f0f0f0;
+        }
+
+        canvas {
+            display: block;
+            margin: 0 auto;
+            background-color: #222;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const BREAK_THRESHOLD = 5; // 깨지는 충돌 강도 임계값
+    const GRAVITY = 0.05; // 중력 값
+
+    let balls = [];  // 원 배열
+    let fragments = []; // 깨진 원 조각들
+
+    // 원 객체 클래스 정의
+    class Ball {
+        constructor(x, y, radius, color) {
+            this.x = x;
+            this.y = y;
+            this.radius = radius;
+            this.color = color;
+            this.vx = Math.random() * 4 - 2;  // x 방향 속도 (-2 ~ 2 사이의 값)
+            this.vy = Math.random() * 4 - 2;  // y 방향 속도 (-2 ~ 2 사이의 값)
+            this.isBroken = false; // 원이 깨졌는지 여부
+        }
+
+        // 원 그리기
+        draw() {
+            if (this.isBroken) return;
+
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // 물리 업데이트
+        update() {
+            if (this.isBroken) return;
+
+            // 원의 위치 업데이트
+            this.x += this.vx;
+            this.y += this.vy;
+
+            // 벽에 부딪히면 반동
+            if (this.x + this.radius > canvas.width || this.x - this.radius < 0) {
+                this.vx *= -1;  // 벽에 부딪히면 반동
+            }
+
+            // 바닥에 부딪히면 튕기도록
+            if (this.y + this.radius > canvas.height || this.y - this.radius < 0) {
+                this.vy *= -1; // 반동 (물리적 느낌을 위해)
+            }
+        }
+
+        // 원 깨기
+        breakBall() {
+            if (this.isBroken) return; // 이미 깨진 원은 다시 깨지지 않도록
+            const fragmentCount = 15; // 깨지는 조각 수
+            const fragmentSize = Math.max(5, this.radius * 0.3); // 각 조각의 크기, 원 크기의 30% 비율로 설정
+
+            for (let i = 0; i < fragmentCount; i++) {
+                const offsetX = Math.random() * 15 - 7.5;
+                const offsetY = Math.random() * 15 - 7.5;
+                const color = 'rgba(255, 255, 255, 0.8)';
+
+                fragments.push(new Fragment(this.x + offsetX, this.y + offsetY, fragmentSize, color));
+            }
+
+            this.isBroken = true;
+        }
+
+        // 질량 계산 (원 면적 = π * r²)
+        getMass() {
+            return Math.PI * Math.pow(this.radius, 2);
+        }
+
+        // 원이 다른 원과 겹치는지 체크
+        overlaps(otherBall) {
+            const dx = this.x - otherBall.x;
+            const dy = this.y - otherBall.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            return distance < this.radius + otherBall.radius;
+        }
+    }
+
+    // 원의 깨진 조각 클래스 (삼각형 모양으로 변경)
+    class Fragment {
+        constructor(x, y, size, color) {
+            this.x = x;
+            this.y = y;
+            this.size = size;
+            this.color = color;
+
+            // 무작위 속도
+            this.vx = Math.random() * 4 - 2;
+            this.vy = Math.random() * 4 - 2;
+
+            // 중력 효과를 위한 속도
+            this.gravity = GRAVITY;
+        }
+
+        // 깨진 조각 그리기 (삼각형)
+        draw() {
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y - this.size);  // 삼각형의 윗 꼭짓점
+            ctx.lineTo(this.x - this.size, this.y + this.size);  // 왼쪽 아래
+            ctx.lineTo(this.x + this.size, this.y + this.size);  // 오른쪽 아래
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // 깨진 조각 업데이트 (중력 적용)
+        update() {
+            this.vy += this.gravity;  // 중력 효과
+
+            this.x += this.vx;
+            this.y += this.vy;
+
+            // 벽에 부딪히면 반동
+            if (this.x + this.size > canvas.width || this.x - this.size < 0) {
+                this.vx *= -0.8;
+            }
+
+            // 바닥에 부딪히면 튕기도록
+            if (this.y + this.size > canvas.height || this.y - this.size < 0) {
+                this.vy *= -0.8;
+            }
+        }
+
+        // 파편이 원에 닿았는지 확인
+        checkCollisionWithBalls() {
+            for (let i = 0; i < balls.length; i++) {
+                if (balls[i].isBroken) continue;
+                const dx = this.x - balls[i].x;
+                const dy = this.y - balls[i].y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance < balls[i].radius) {
+                    balls[i].breakBall(); // 파편이 원에 닿으면 그 원을 깨기
+                }
+            }
+        }
+    }
+
+    // 마우스 클릭 이벤트 처리
+    canvas.addEventListener("mousedown", (event) => {
+        const mouseX = event.clientX;
+        const mouseY = event.clientY;
+
+        balls.forEach(ball => {
+            if (!ball.isBroken && Math.sqrt((mouseX - ball.x) ** 2 + (mouseY - ball.y) ** 2) < ball.radius) {
+                ball.breakBall(); // 클릭한 원 깨기
+            }
+        });
+    });
+
+    // 원 간의 충돌 체크
+    function checkCollisions() {
+        for (let i = 0; i < balls.length; i++) {
+            if (balls[i].isBroken) continue;
+            for (let j = i + 1; j < balls.length; j++) {
+                if (balls[j].isBroken) continue;
+
+                const dx = balls[i].x - balls[j].x;
+                const dy = balls[i].y - balls[j].y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const minDistance = balls[i].radius + balls[j].radius;
+
+                if (distance < minDistance) {
+                    // 충돌 시 반동 처리
+                    const angle = Math.atan2(dy, dx);
+                    const speed1 = Math.sqrt(balls[i].vx * balls[i].vx + balls[i].vy * balls[i].vy);
+                    const speed2 = Math.sqrt(balls[j].vx * balls[j].vx + balls[j].vy * balls[j].vy);
+
+                    // 각 원의 질량을 구함
+                    const mass1 = balls[i].getMass();
+                    const mass2 = balls[j].getMass();
+
+                    // 운동량 보존을 고려한 반동 계산 (질량 비례)
+                    const newVx1 = ((mass1 - mass2) * balls[i].vx + 2 * mass2 * balls[j].vx) / (mass1 + mass2);
+                    const newVy1 = ((mass1 - mass2) * balls[i].vy + 2 * mass2 * balls[j].vy) / (mass1 + mass2);
+                    const newVx2 = ((mass2 - mass1) * balls[j].vx + 2 * mass1 * balls[i].vx) / (mass1 + mass2);
+                    const newVy2 = ((mass2 - mass1) * balls[j].vy + 2 * mass1 * balls[i].vy) / (mass1 + mass2);
+
+                    balls[i].vx = newVx1;
+                    balls[i].vy = newVy1;
+                    balls[j].vx = newVx2;
+                    balls[j].vy = newVy2;
+                }
+            }
+        }
+    }
+
+    // 원 간의 겹침을 피하면서 원 생성
+    function generateBall() {
+        let x, y, radius, overlaps;
+        do {
+            x = Math.random() * canvas.width;
+            y = Math.random() * canvas.height;
+            radius = 10 + Math.random() * 15;
+            overlaps = false;
+            for (let ball of balls) {
+                if (ball.overlaps({ x, y, radius })) {
+                    overlaps = true;
+                    break;
+                }
+            }
+        } while (overlaps);
+
+        return new Ball(x, y, radius, `hsl(${Math.random() * 360}, 100%, 50%)`);
+    }
+
+    // 게임 루프
+    function gameLoop() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height); // 캔버스 지우기
+
+        // 원들 업데이트 및 그리기
+        balls.forEach(ball => {
+            ball.update();
+            ball.draw();
+        });
+
+        // 깨진 원의 조각들 업데이트 및 그리기
+        fragments.forEach(fragment => {
+            fragment.update();
+            fragment.draw();
+            fragment.checkCollisionWithBalls(); // 파편이 원과 충돌했는지 체크
+        });
+
+        // 원 간의 충돌 체크
+        checkCollisions();
+
+        requestAnimationFrame(gameLoop); // 애니메이션 계속 실행
+    }
+
+    // 게임 시작
+    function startGame() {
+        // 원 50개 생성
+        for (let i = 0; i < 100; i++) {
+            balls.push(generateBall());
+        }
+
+        gameLoop();
+    }
+
+    startGame();
+
+</script>
+
+</body>
+</html>
